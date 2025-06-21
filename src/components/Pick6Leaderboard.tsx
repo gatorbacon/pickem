@@ -288,35 +288,35 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
                 <div key={index} className="transition-all duration-200">
                   {/* Compact Row - Always Visible */}
                   <div 
-                    className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                    className="p-3 sm:p-6 cursor-pointer hover:bg-gray-50 transition-colors"
                     onClick={() => handleEntryClick(index)}
                   >
                     <div className="flex items-center justify-between">
                       {/* Left Side: Rank and Username */}
-                      <div className="flex items-center space-x-4">
-                        <div className="text-4xl font-normal text-gray-900 w-12">
+                      <div className="flex items-center space-x-2 sm:space-x-4 flex-1 min-w-0">
+                        <div className="text-2xl sm:text-4xl font-normal text-gray-900 w-6 sm:w-12 flex-shrink-0">
                           {entry.rank}
                         </div>
-                        <div className="font-semibold text-xl text-gray-900">
+                        <div className="font-semibold text-sm sm:text-xl text-gray-900 truncate">
                           {entry.username}
                         </div>
                       </div>
 
                       {/* Right Side: Points and Expand Icon */}
-                      <div className="flex items-center space-x-6">
+                      <div className="flex items-center space-x-2 sm:space-x-6 flex-shrink-0">
                         {/* Points */}
                         <div className="text-right">
-                          <div className="text-4xl font-bold text-blue-600">
+                          <div className="text-xl sm:text-4xl font-bold text-blue-600">
                             {Math.round(entry.total_points)}
                           </div>
-                          <div className="text-sm text-gray-600">
+                          <div className="text-xs sm:text-sm text-gray-600">
                             points
                           </div>
                         </div>
                         
                         {/* Potential Points */}
                         <div className="text-right">
-                          <div className="text-2xl font-semibold text-blue-500">
+                          <div className="text-sm sm:text-2xl font-semibold text-blue-500">
                             {Math.round(points.potential)}
                           </div>
                           <div className="text-xs text-gray-500">
@@ -325,9 +325,9 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
                         </div>
 
                         {/* Expand/Collapse Icon */}
-                        <div className="text-gray-400 ml-4">
+                        <div className="text-gray-400 ml-1 sm:ml-4">
                           <svg 
-                            className={`w-6 h-6 transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                            className={`w-4 h-4 sm:w-6 sm:h-6 transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
                             fill="none" 
                             stroke="currentColor" 
                             viewBox="0 0 24 24"
@@ -341,16 +341,16 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
 
                   {/* Expanded Details - Conditionally Visible */}
                   {isExpanded && (
-                    <div className="px-6 pb-6 bg-gray-50 border-t border-gray-100">
-                      <div className="pt-4">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                    <div className="px-3 sm:px-6 pb-3 sm:pb-6 bg-gray-50 border-t border-gray-100">
+                      <div className="pt-3 sm:pt-4">
+                        <h4 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                           {entry.username}'s Picks ({entry.picks_correct}/{entry.picks.length} correct)
                         </h4>
                         
                         {entry.picks.length === 0 ? (
                           <div className="text-gray-500 text-sm">No picks data</div>
                         ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                             {entry.picks.map((pick, pickIndex) => (
                               <div 
                                 key={pickIndex} 
