@@ -23,7 +23,7 @@ export default function AdminPage() {
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'events' | 'matches'>('events')
+  const [activeTab, setActiveTab] = useState<'events' | 'matches' | 'results'>('events')
 
   // Form states
   const [eventForm, setEventForm] = useState<EventFormData>({
@@ -353,6 +353,31 @@ export default function AdminPage() {
     }
   }
 
+  const handleRecordResult = async (matchId: string, winner: 'A' | 'B', finishType: 'decision' | 'ko_tko' | 'submission') => {
+    setError(null)
+    
+    try {
+      const { error } = await supabase
+        .from('matches')
+        .update({
+          winner,
+          finish_type: finishType,
+          is_complete: true
+        })
+        .eq('id', matchId)
+      
+      if (error) throw handleSupabaseError(error)
+      
+      // Refresh matches to show updated results
+      if (currentEvent) {
+        await fetchMatches(currentEvent.id)
+      }
+      
+    } catch (error) {
+      setError(getErrorMessage(error))
+    }
+  }
+
   const handleDeleteEvent = async (eventId: string) => {
     setError(null)
     
@@ -459,6 +484,12 @@ export default function AdminPage() {
           onClick={() => setActiveTab('matches')}
         >
           Matches {currentEvent && `(${matches.length})`}
+        </button>
+        <button
+          className={`py-2 px-4 font-medium ${activeTab === 'results' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+          onClick={() => setActiveTab('results')}
+        >
+          Results {currentEvent && `(${matches.length})`}
         </button>
       </div>
 
@@ -1210,6 +1241,184 @@ export default function AdminPage() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Results Tab */}
+      {activeTab === 'results' && (
+        <div className="space-y-6">
+          {!currentEvent ? (
+            <div className="text-center py-12">
+              <div className="text-gray-500 text-lg">
+                Please select an event first to record results.
+              </div>
+              <p className="text-gray-400 mt-2">
+                Go to the Events tab and click "Manage Matches" on an event.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-lg shadow">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-xl font-semibold">Record Results - {currentEvent.name}</h2>
+                <p className="text-gray-600 mt-1">Click on the winner of each match to record results</p>
+              </div>
+              
+              <div className="divide-y divide-gray-200">
+                {matches.map((match) => (
+                  <div key={match.id} className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold">{match.weight_class}</h3>
+                        <div className="text-sm text-gray-500">Fight #{match.match_order}</div>
+                        {match.is_complete && (
+                          <div className="flex items-center mt-2">
+                            <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-sm font-medium">
+                              ✓ Complete
+                            </span>
+                            <span className="ml-2 text-sm text-gray-600">
+                              Winner: {match.winner === 'A' ? match.wrestler_a : match.wrestler_b} 
+                              ({match.finish_type?.replace('_', '/').toUpperCase()})
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Fighter A */}
+                      <div className={`border-2 rounded-lg p-4 transition-all ${
+                        match.is_complete && match.winner === 'A' 
+                          ? 'border-green-500 bg-green-50' 
+                          : 'border-gray-200 hover:border-blue-300'
+                      }`}>
+                        <div className="flex justify-between items-center mb-3">
+                          <h4 className="text-lg font-semibold">{match.wrestler_a}</h4>
+                          {currentEvent.contest_type === 'pick_6' ? (
+                            <div className="text-sm text-gray-600">
+                              {(match.american_odds_a || 0) >= 0 
+                                ? (match.american_odds_a || 0) 
+                                : Math.round(10000 / Math.abs(match.american_odds_a || 110))
+                              } pts
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-600">
+                              {match.favorite === 'A' ? match.favorite_points : match.underdog_points} pts
+                            </div>
+                          )}
+                        </div>
+                        
+                        {!match.is_complete && (
+                          <div className="space-y-2">
+                            <div className="text-sm font-medium text-gray-700 mb-2">Record as Winner:</div>
+                            <div className="grid grid-cols-3 gap-2">
+                              <button
+                                onClick={() => handleRecordResult(match.id, 'A', 'decision')}
+                                className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700"
+                              >
+                                Decision
+                              </button>
+                              <button
+                                onClick={() => handleRecordResult(match.id, 'A', 'ko_tko')}
+                                className="bg-red-600 text-white px-3 py-2 rounded text-sm hover:bg-red-700"
+                              >
+                                KO/TKO
+                              </button>
+                              <button
+                                onClick={() => handleRecordResult(match.id, 'A', 'submission')}
+                                className="bg-purple-600 text-white px-3 py-2 rounded text-sm hover:bg-purple-700"
+                              >
+                                Submission
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Fighter B */}
+                      <div className={`border-2 rounded-lg p-4 transition-all ${
+                        match.is_complete && match.winner === 'B' 
+                          ? 'border-green-500 bg-green-50' 
+                          : 'border-gray-200 hover:border-blue-300'
+                      }`}>
+                        <div className="flex justify-between items-center mb-3">
+                          <h4 className="text-lg font-semibold">{match.wrestler_b}</h4>
+                          {currentEvent.contest_type === 'pick_6' ? (
+                            <div className="text-sm text-gray-600">
+                              {(match.american_odds_b || 0) >= 0 
+                                ? (match.american_odds_b || 0) 
+                                : Math.round(10000 / Math.abs(match.american_odds_b || 110))
+                              } pts
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-600">
+                              {match.favorite === 'B' ? match.favorite_points : match.underdog_points} pts
+                            </div>
+                          )}
+                        </div>
+                        
+                        {!match.is_complete && (
+                          <div className="space-y-2">
+                            <div className="text-sm font-medium text-gray-700 mb-2">Record as Winner:</div>
+                            <div className="grid grid-cols-3 gap-2">
+                              <button
+                                onClick={() => handleRecordResult(match.id, 'B', 'decision')}
+                                className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700"
+                              >
+                                Decision
+                              </button>
+                              <button
+                                onClick={() => handleRecordResult(match.id, 'B', 'ko_tko')}
+                                className="bg-red-600 text-white px-3 py-2 rounded text-sm hover:bg-red-700"
+                              >
+                                KO/TKO
+                              </button>
+                              <button
+                                onClick={() => handleRecordResult(match.id, 'B', 'submission')}
+                                className="bg-purple-600 text-white px-3 py-2 rounded text-sm hover:bg-purple-700"
+                              >
+                                Submission
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Reset Result Button */}
+                    {match.is_complete && (
+                      <div className="mt-4 text-center">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const { error } = await supabase
+                                .from('matches')
+                                .update({
+                                  winner: null,
+                                  finish_type: null,
+                                  is_complete: false
+                                })
+                                .eq('id', match.id)
+                              
+                              if (error) throw error
+                              
+                              if (currentEvent) {
+                                await fetchMatches(currentEvent.id)
+                              }
+                            } catch (error: any) {
+                              setError(error.message)
+                            }
+                          }}
+                          className="bg-gray-500 text-white px-4 py-2 rounded text-sm hover:bg-gray-600"
+                        >
+                          Reset Result
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
