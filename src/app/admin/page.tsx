@@ -382,126 +382,139 @@ export default function AdminPage() {
     setError(null)
     
     try {
-      // Manual points calculation since trigger is broken
+      console.log('Starting points recalculation...')
       
-      // Step 1: Update is_winner for all completed matches
-      const { error: updateWinnersError } = await supabase.rpc('execute_sql', {
-        sql: `
-          UPDATE pick6_selections 
-          SET is_winner = CASE 
-            WHEN m.winner IS NULL THEN NULL
-            WHEN m.winner = pick6_selections.fighter_id THEN TRUE
-            ELSE FALSE
-          END
-          FROM matches m
-          WHERE pick6_selections.match_id = m.id
-          AND m.is_complete = true;
-        `
-      })
+      // Get all completed matches
+      const { data: completedMatches, error: matchesError } = await supabase
+        .from('matches')
+        .select('id, winner, finish_type')
+        .eq('is_complete', true)
       
-      if (updateWinnersError) {
-        // Fallback: Use direct SQL queries
-        console.log('RPC failed, using direct updates...')
+      if (matchesError) throw matchesError
+      console.log('Found completed matches:', completedMatches?.length)
+      
+      // Process each match
+      for (const match of completedMatches || []) {
+        console.log(`Processing match ${match.id}, winner: ${match.winner}`)
         
-        // Get all completed matches and their selections
-        const { data: completedMatches, error: matchesError } = await supabase
-          .from('matches')
-          .select('id, winner')
-          .eq('is_complete', true)
+        // Reset all selections for this match first
+        const { error: resetError } = await supabase
+          .from('pick6_selections')
+          .update({
+            base_points: 0,
+            finish_bonus: 0,
+            underdog_bonus: 0,
+            final_points: 0,
+            is_winner: null
+          })
+          .eq('match_id', match.id)
         
-        if (matchesError) throw matchesError
-        
-        // Update each match's selections individually
-        for (const match of completedMatches || []) {
-          // Reset points first
-          await supabase
-            .from('pick6_selections')
-            .update({
-              base_points: 0,
-              finish_bonus: 0,
-              underdog_bonus: 0,
-              final_points: 0,
-              is_winner: null
-            })
-            .eq('match_id', match.id)
-          
-          if (match.winner) {
-            // Set winners
-            await supabase
-              .from('pick6_selections')
-              .update({ is_winner: true })
-              .eq('match_id', match.id)
-              .eq('fighter_id', match.winner)
-            
-            // Set losers
-            await supabase
-              .from('pick6_selections')
-              .update({ is_winner: false })
-              .eq('match_id', match.id)
-              .neq('fighter_id', match.winner)
-            
-            // Calculate points for winners
-            const { data: winners } = await supabase
-              .from('pick6_selections')
-              .select('id, american_odds, is_double_down')
-              .eq('match_id', match.id)
-              .eq('is_winner', true)
-            
-            const { data: matchData } = await supabase
-              .from('matches')
-              .select('finish_type')
-              .eq('id', match.id)
-              .single()
-            
-            for (const winner of winners || []) {
-              const basePoints = winner.american_odds >= 0 
-                ? winner.american_odds 
-                : Math.floor(10000 / Math.abs(winner.american_odds))
-              
-              const finishBonus = matchData?.finish_type === 'ko_tko' || matchData?.finish_type === 'submission' ? 50 : 0
-              const underdogBonus = winner.american_odds >= 100 ? Math.floor(basePoints * 0.1) : 0
-              const finalPoints = (basePoints + finishBonus + underdogBonus) * (winner.is_double_down ? 2 : 1)
-              
-              await supabase
-                .from('pick6_selections')
-                .update({
-                  base_points: basePoints,
-                  finish_bonus: finishBonus,
-                  underdog_bonus: underdogBonus,
-                  final_points: finalPoints
-                })
-                .eq('id', winner.id)
-            }
-          }
+        if (resetError) {
+          console.error('Reset error for match', match.id, resetError)
+          continue
         }
         
-        // Update pick6_entries totals
-        const { data: entries } = await supabase
-          .from('pick6_entries')
-          .select('id')
-        
-        for (const entry of entries || []) {
-          const { data: selections } = await supabase
+        if (match.winner) {
+          // Set winners
+          const { error: winnersError } = await supabase
             .from('pick6_selections')
-            .select('final_points, is_winner')
-            .eq('pick6_entry_id', entry.id)
+            .update({ is_winner: true })
+            .eq('match_id', match.id)
+            .eq('fighter_id', match.winner)
           
-          const totalPoints = selections?.reduce((sum, sel) => sum + (sel.final_points || 0), 0) || 0
-          const picksCorrect = selections?.filter(sel => sel.is_winner === true).length || 0
+          if (winnersError) console.error('Winners error:', winnersError)
           
-          await supabase
-            .from('pick6_entries')
-            .update({
-              total_points: totalPoints,
-              picks_correct: picksCorrect
-            })
-            .eq('id', entry.id)
+          // Set losers
+          const { error: losersError } = await supabase
+            .from('pick6_selections')
+            .update({ is_winner: false })
+            .eq('match_id', match.id)
+            .neq('fighter_id', match.winner)
+          
+          if (losersError) console.error('Losers error:', losersError)
+          
+          // Get winners to calculate points
+          const { data: winners, error: winnersDataError } = await supabase
+            .from('pick6_selections')
+            .select('id, american_odds, is_double_down')
+            .eq('match_id', match.id)
+            .eq('is_winner', true)
+          
+          if (winnersDataError) {
+            console.error('Winners data error:', winnersDataError)
+            continue
+          }
+          
+          console.log(`Found ${winners?.length} winners for match ${match.id}`)
+          
+          // Calculate points for each winner
+          for (const winner of winners || []) {
+            const basePoints = winner.american_odds >= 0 
+              ? winner.american_odds 
+              : Math.floor(10000 / Math.abs(winner.american_odds))
+            
+            const finishBonus = (match.finish_type === 'ko_tko' || match.finish_type === 'submission') ? 50 : 0
+            const underdogBonus = winner.american_odds >= 100 ? Math.floor(basePoints * 0.1) : 0
+            const finalPoints = (basePoints + finishBonus + underdogBonus) * (winner.is_double_down ? 2 : 1)
+            
+            console.log(`Updating winner ${winner.id}: ${basePoints} + ${finishBonus} + ${underdogBonus} = ${finalPoints}`)
+            
+            const { error: pointsError } = await supabase
+              .from('pick6_selections')
+              .update({
+                base_points: basePoints,
+                finish_bonus: finishBonus,
+                underdog_bonus: underdogBonus,
+                final_points: finalPoints
+              })
+              .eq('id', winner.id)
+            
+            if (pointsError) console.error('Points error:', pointsError)
+          }
         }
       }
       
-      alert('Points recalculated successfully! All completed matches have been updated.')
+      // Update pick6_entries totals
+      const { data: entries, error: entriesError } = await supabase
+        .from('pick6_entries')
+        .select('id')
+      
+      if (entriesError) throw entriesError
+      
+      console.log('Updating entry totals for', entries?.length, 'entries')
+      
+      for (const entry of entries || []) {
+        const { data: selections, error: selectionsError } = await supabase
+          .from('pick6_selections')
+          .select('final_points, is_winner')
+          .eq('pick6_entry_id', entry.id)
+        
+        if (selectionsError) {
+          console.error('Selections error:', selectionsError)
+          continue
+        }
+        
+        const totalPoints = selections?.reduce((sum, sel) => sum + (sel.final_points || 0), 0) || 0
+        const picksCorrect = selections?.filter(sel => sel.is_winner === true).length || 0
+        
+        console.log(`Entry ${entry.id}: ${totalPoints} points, ${picksCorrect} correct`)
+        
+        const { error: entryUpdateError } = await supabase
+          .from('pick6_entries')
+          .update({
+            total_points: totalPoints,
+            picks_correct: picksCorrect
+          })
+          .eq('id', entry.id)
+        
+        if (entryUpdateError) console.error('Entry update error:', entryUpdateError)
+      }
+      
+      console.log('Recalculation complete!')
+      alert('Points recalculated successfully! Check the browser console for details.')
       
     } catch (error) {
+      console.error('Recalculation error:', error)
       setError(getErrorMessage(error))
     }
   }
