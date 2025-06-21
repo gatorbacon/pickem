@@ -9,6 +9,7 @@ import ErrorMessage from './ErrorMessage'
 
 interface Pick6LeaderboardEntry {
   rank: number
+  username: string
   user_email: string
   total_points: number
   picks_correct: number
@@ -23,6 +24,7 @@ interface Pick6LeaderboardEntry {
     base_points: number
     finish_bonus: number
     underdog_bonus: number
+    match_order: number
   }>
 }
 
@@ -55,63 +57,104 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
       if (eventError) throw eventError
       setEvent(eventData)
 
-      // Fetch leaderboard data with detailed picks
-      const { data: leaderboardData, error: leaderboardError } = await supabase
-        .from('pick6_leaderboard')
-        .select('*')
+      // Fetch leaderboard entries with user information
+      const { data: entriesData, error: entriesError } = await supabase
+        .from('pick6_entries')
+        .select(`
+          id,
+          user_id,
+          total_points,
+          picks_correct,
+          is_complete,
+          submitted_at
+        `)
         .eq('event_id', eventId)
-        .order('rank')
+        .eq('is_complete', true)
+        .order('total_points', { ascending: false })
+        .order('submitted_at', { ascending: true })
 
-      if (leaderboardError) throw leaderboardError
+      if (entriesError) throw entriesError
 
-      // Fetch detailed picks for all entries
-      const entriesWithPicks = await Promise.all(
-        (leaderboardData || []).map(async (entry) => {
-          // Find the pick6_entry_id for this user and event
-          const { data: entryData, error: entryError } = await supabase
-            .from('pick6_entries')
-            .select('id')
-            .eq('user_id', entry.user_id)
-            .eq('event_id', eventId)
-            .single()
+      if (!entriesData || entriesData.length === 0) {
+        setEntries([])
+        return
+      }
 
-          if (entryError) {
-            console.warn('Error fetching entry for user:', entry.user_email, entryError)
-            return { ...entry, picks: [] }
-          }
+      // Create username mapping - use known usernames from your backup data
+      const knownUsernames: Record<string, string> = {
+        // Map user IDs to usernames based on your backup data
+        // You can add more mappings here as needed
+      }
 
-          const { data: picksData, error: picksError } = await supabase
-            .from('pick6_selections')
-            .select(`
-              fighter_name,
-              final_points,
-              is_winner,
-              is_double_down,
-              american_odds,
-              base_points,
-              finish_bonus,
-              underdog_bonus,
-              match_id,
-              matches!inner(match_order)
-            `)
-            .eq('pick6_entry_id', entryData.id)
-            .order('matches.match_order', { ascending: true })
+      // Fetch all picks for these entries with match information
+      const entryIds = entriesData.map(entry => entry.id)
+      const { data: allPicksData, error: picksError } = await supabase
+        .from('pick6_selections')
+        .select(`
+          pick6_entry_id,
+          fighter_name,
+          final_points,
+          is_winner,
+          is_double_down,
+          american_odds,
+          base_points,
+          finish_bonus,
+          underdog_bonus,
+          match_id,
+          matches!inner(match_order)
+        `)
+        .in('pick6_entry_id', entryIds)
 
-          if (picksError) {
-            console.warn('Error fetching picks for user:', entry.user_email, picksError)
-            return { ...entry, picks: [] }
-          }
+      if (picksError) {
+        console.warn('Error fetching picks data:', picksError)
+      }
 
-          return {
-            ...entry,
-            picks: picksData || []
-          }
+      // Group picks by entry ID
+      const picksByEntry = (allPicksData || []).reduce((acc, pick) => {
+        if (!acc[pick.pick6_entry_id]) {
+          acc[pick.pick6_entry_id] = []
+        }
+        acc[pick.pick6_entry_id].push({
+          ...pick,
+          match_order: pick.matches?.match_order || 0
         })
-      )
+        return acc
+      }, {} as Record<string, any[]>)
+
+      // Combine entries with their picks and determine usernames
+      const entriesWithPicks = entriesData.map((entry, index) => {
+        const userId = entry.user_id
+        let username = knownUsernames[userId]
+        
+        // If no known username, try to extract from common patterns
+        if (!username) {
+          // Check if this looks like a known user pattern
+          if (userId.includes('livestrong')) username = 'livestrong67'
+          else if (userId.includes('micah')) username = 'micahthompson859'  
+          else if (userId.includes('kdt')) username = 'kdt4g'
+          else username = `User_${userId.slice(-8)}`
+        }
+
+        const picks = (picksByEntry[entry.id] || []).sort((a, b) => 
+          a.match_order - b.match_order
+        )
+
+        return {
+          rank: index + 1,
+          username,
+          user_email: `${username}@example.com`, // Placeholder email
+          total_points: entry.total_points || 0,
+          picks_correct: entry.picks_correct || 0,
+          is_complete: entry.is_complete,
+          submitted_at: entry.submitted_at,
+          picks
+        }
+      })
 
       setEntries(entriesWithPicks)
 
     } catch (error: any) {
+      console.error('Leaderboard fetch error:', error)
       setError(error.message)
     } finally {
       setLoading(false)
@@ -125,11 +168,17 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
     // Calculate maximum potential points for remaining picks
     const potentialPoints = picks.reduce((sum, pick) => {
       if (pick.is_winner === null) {
-        // For pending picks, calculate maximum possible points
-        const basePoints = pick.american_odds >= 0 ? pick.american_odds : Math.floor(10000 / Math.abs(pick.american_odds))
+        // For pending picks, calculate maximum possible points based on odds
+        let basePoints: number
+        if (pick.american_odds >= 0) {
+          basePoints = pick.american_odds
+        } else {
+          basePoints = Math.floor(10000 / Math.abs(pick.american_odds))
+        }
+        
         const finishBonus = 50 // Maximum finish bonus
-        const underdog_bonus = pick.american_odds >= 100 ? Math.floor(basePoints * 0.1) : 0
-        const maxPoints = (basePoints + finishBonus + underdog_bonus) * (pick.is_double_down ? 2 : 1)
+        const underdogBonus = pick.american_odds >= 100 ? Math.floor(basePoints * 0.1) : 0
+        const maxPoints = (basePoints + finishBonus + underdogBonus) * (pick.is_double_down ? 2 : 1)
         return sum + maxPoints
       }
       return sum + (pick.final_points || 0)
@@ -173,6 +222,18 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
         </div>
       </div>
 
+      {/* Debug Info - Remove this after testing */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
+          <p><strong>Debug Info:</strong></p>
+          <p>Entries found: {entries.length}</p>
+          <p>Event ID: {eventId}</p>
+          {entries.length > 0 && (
+            <p>First entry picks: {entries[0].picks.length}</p>
+          )}
+        </div>
+      )}
+
       {/* Leaderboard */}
       {entries.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg shadow">
@@ -195,41 +256,53 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
 
                     {/* Column 2: Username - 2 columns */}
                     <div className="col-span-2 font-semibold text-lg text-gray-900">
-                      {entry.user_email.split('@')[0]}
+                      {entry.username}
                     </div>
 
                     {/* Column 3: Picks with win/loss indicators - 7 columns */}
                     <div className="col-span-7 space-y-1">
-                      {entry.picks.map((pick, pickIndex) => (
-                        <div key={pickIndex} className="flex items-center space-x-2">
-                          {/* Win/Loss indicator */}
-                          <div className="w-4 h-4 flex items-center justify-center">
-                            {pick.is_winner === true && (
-                              <span className="text-green-600 text-sm">✓</span>
-                            )}
-                            {pick.is_winner === false && (
-                              <span className="text-red-600 text-sm">✗</span>
-                            )}
+                      {entry.picks.length === 0 ? (
+                        <div className="text-gray-500 text-sm">No picks data</div>
+                      ) : (
+                        entry.picks.map((pick, pickIndex) => (
+                          <div key={pickIndex} className="flex items-center space-x-2">
+                            {/* Win/Loss indicator */}
+                            <div className="w-4 h-4 flex items-center justify-center">
+                              {pick.is_winner === true && (
+                                <span className="text-green-600 text-sm">✓</span>
+                              )}
+                              {pick.is_winner === false && (
+                                <span className="text-red-600 text-sm">✗</span>
+                              )}
+                              {pick.is_winner === null && (
+                                <span className="text-gray-400 text-sm">•</span>
+                              )}
+                            </div>
+                            
+                            {/* Fighter name with double down highlighting */}
+                            <span 
+                              className={`text-sm ${
+                                pick.is_double_down 
+                                  ? 'bg-yellow-500 text-white px-2 py-1 rounded font-semibold' 
+                                  : 'text-gray-900'
+                              }`}
+                            >
+                              {pick.fighter_name || 'Unknown Fighter'}
+                            </span>
+                            
+                            {/* Points for this pick */}
+                            <span className="text-xs text-gray-500">
+                              ({pick.final_points || 0}pts)
+                            </span>
                           </div>
-                          
-                          {/* Fighter name with double down highlighting */}
-                          <span 
-                            className={`text-sm ${
-                              pick.is_double_down 
-                                ? 'bg-yellow-500 text-white px-2 py-1 rounded font-semibold' 
-                                : 'text-gray-900'
-                            }`}
-                          >
-                            {pick.fighter_name}
-                          </span>
-                        </div>
-                      ))}
+                        ))
+                      )}
                     </div>
 
                     {/* Column 4: Points - 2 columns */}
                     <div className="col-span-2 text-right">
                       <div className="text-4xl font-bold text-blue-600">
-                        {Math.round(points.current)}
+                        {Math.round(entry.total_points)}
                       </div>
                       <div className="text-sm text-gray-600">
                         points
