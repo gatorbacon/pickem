@@ -38,6 +38,7 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
   const [entries, setEntries] = useState<Pick6LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [expandedEntry, setExpandedEntry] = useState<number | null>(null)
 
   useEffect(() => {
     fetchLeaderboard()
@@ -213,6 +214,16 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
     }
   }
 
+  const handleEntryClick = (entryIndex: number) => {
+    if (expandedEntry === entryIndex) {
+      // If clicking the same entry, collapse it
+      setExpandedEntry(null)
+    } else {
+      // Expand the clicked entry (and collapse any other)
+      setExpandedEntry(entryIndex)
+    }
+  }
+
   if (loading) {
     return <LoadingSpinner size="lg" text="Loading leaderboard..." />
   }
@@ -271,76 +282,177 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
           <div className="divide-y divide-gray-200">
             {entries.map((entry, index) => {
               const points = calculatePotentialPoints(entry.picks)
+              const isExpanded = expandedEntry === index
               
               return (
-                <div key={index} className="p-6">
-                  <div className="grid grid-cols-12 gap-4 items-center">
-                    {/* Column 1: Rank - 1 column */}
-                    <div className="col-span-1 text-4xl font-normal text-gray-900">
-                      {entry.rank}
-                    </div>
+                <div key={index} className="transition-all duration-200">
+                  {/* Compact Row - Always Visible */}
+                  <div 
+                    className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() => handleEntryClick(index)}
+                  >
+                    <div className="flex items-center justify-between">
+                      {/* Left Side: Rank and Username */}
+                      <div className="flex items-center space-x-4">
+                        <div className="text-4xl font-normal text-gray-900 w-12">
+                          {entry.rank}
+                        </div>
+                        <div className="font-semibold text-xl text-gray-900">
+                          {entry.username}
+                        </div>
+                      </div>
 
-                    {/* Column 2: Username - 2 columns */}
-                    <div className="col-span-2 font-semibold text-lg text-gray-900">
-                      {entry.username}
-                    </div>
-
-                    {/* Column 3: Picks with win/loss indicators - 7 columns */}
-                    <div className="col-span-7 space-y-1">
-                      {entry.picks.length === 0 ? (
-                        <div className="text-gray-500 text-sm">No picks data</div>
-                      ) : (
-                        entry.picks.map((pick, pickIndex) => (
-                          <div key={pickIndex} className="flex items-center space-x-2">
-                            {/* Win/Loss indicator */}
-                            <div className="w-4 h-4 flex items-center justify-center">
-                              {pick.is_winner === true && (
-                                <span className="text-green-600 text-sm">✓</span>
-                              )}
-                              {pick.is_winner === false && (
-                                <span className="text-red-600 text-sm">✗</span>
-                              )}
-                              {pick.is_winner === null && (
-                                <span className="text-gray-400 text-sm">•</span>
-                              )}
-                            </div>
-                            
-                            {/* Fighter name with double down highlighting */}
-                            <span 
-                              className={`text-sm ${
-                                pick.is_double_down 
-                                  ? 'bg-yellow-500 text-white px-2 py-1 rounded font-semibold' 
-                                  : 'text-gray-900'
-                              }`}
-                            >
-                              {pick.fighter_name || 'Unknown Fighter'}
-                            </span>
-                            
-                            {/* Points for this pick */}
-                            <span className="text-xs text-gray-500">
-                              ({pick.final_points || 0}pts)
-                            </span>
+                      {/* Right Side: Points and Expand Icon */}
+                      <div className="flex items-center space-x-6">
+                        {/* Points */}
+                        <div className="text-right">
+                          <div className="text-4xl font-bold text-blue-600">
+                            {Math.round(entry.total_points)}
                           </div>
-                        ))
-                      )}
-                    </div>
+                          <div className="text-sm text-gray-600">
+                            points
+                          </div>
+                        </div>
+                        
+                        {/* Potential Points */}
+                        <div className="text-right">
+                          <div className="text-2xl font-semibold text-blue-500">
+                            {Math.round(points.potential)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            potential
+                          </div>
+                        </div>
 
-                    {/* Column 4: Points - 2 columns */}
-                    <div className="col-span-2 text-right">
-                      <div className="text-4xl font-bold text-blue-600">
-                        {Math.round(entry.total_points)}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        points
-                      </div>
-                      <div className="text-sm text-blue-500 mt-1">
-                        {Math.round(points.potential)}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        potential
+                        {/* Expand/Collapse Icon */}
+                        <div className="text-gray-400 ml-4">
+                          <svg 
+                            className={`w-6 h-6 transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
                       </div>
                     </div>
                   </div>
+
+                  {/* Expanded Details - Conditionally Visible */}
+                  {isExpanded && (
+                    <div className="px-6 pb-6 bg-gray-50 border-t border-gray-100">
+                      <div className="pt-4">
+                        <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                          {entry.username}'s Picks ({entry.picks_correct}/{entry.picks.length} correct)
+                        </h4>
+                        
+                        {entry.picks.length === 0 ? (
+                          <div className="text-gray-500 text-sm">No picks data</div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {entry.picks.map((pick, pickIndex) => (
+                              <div 
+                                key={pickIndex} 
+                                className={`p-4 rounded-lg border-2 ${
+                                  pick.is_winner === true 
+                                    ? 'border-green-500 bg-green-50' 
+                                    : pick.is_winner === false
+                                    ? 'border-red-500 bg-red-50'
+                                    : 'border-gray-300 bg-white'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between">
+                                  {/* Fighter Info */}
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                      {/* Win/Loss indicator */}
+                                      <div className="w-6 h-6 flex items-center justify-center">
+                                        {pick.is_winner === true && (
+                                          <span className="text-green-600 text-lg font-bold">✓</span>
+                                        )}
+                                        {pick.is_winner === false && (
+                                          <span className="text-red-600 text-lg font-bold">✗</span>
+                                        )}
+                                        {pick.is_winner === null && (
+                                          <span className="text-gray-400 text-lg">•</span>
+                                        )}
+                                      </div>
+                                      
+                                      {/* Fight Number */}
+                                      <span className="text-xs text-gray-500 font-medium">
+                                        Fight #{pick.match_order}
+                                      </span>
+                                    </div>
+                                    
+                                    {/* Fighter name with double down highlighting */}
+                                    <div 
+                                      className={`font-semibold text-lg mb-1 ${
+                                        pick.is_double_down 
+                                          ? 'bg-yellow-500 text-white px-2 py-1 rounded font-bold inline-block' 
+                                          : 'text-gray-900'
+                                      }`}
+                                    >
+                                      {pick.fighter_name || 'Unknown Fighter'}
+                                      {pick.is_double_down && (
+                                        <span className="ml-1 text-sm">2x</span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Points */}
+                                  <div className="text-right ml-4">
+                                    <div className={`text-2xl font-bold ${
+                                      pick.is_winner === true 
+                                        ? 'text-green-600' 
+                                        : pick.is_winner === false
+                                        ? 'text-red-600'
+                                        : 'text-gray-500'
+                                    }`}>
+                                      {pick.final_points || 0}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      points
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Points Breakdown for Winners */}
+                                {pick.is_winner === true && pick.final_points > 0 && (
+                                  <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-600">
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between">
+                                        <span>Base:</span>
+                                        <span>{pick.base_points || 0}pts</span>
+                                      </div>
+                                      {pick.finish_bonus > 0 && (
+                                        <div className="flex justify-between text-orange-600">
+                                          <span>Finish bonus:</span>
+                                          <span>+{pick.finish_bonus}pts</span>
+                                        </div>
+                                      )}
+                                      {pick.underdog_bonus > 0 && (
+                                        <div className="flex justify-between text-purple-600">
+                                          <span>Underdog bonus:</span>
+                                          <span>+{pick.underdog_bonus}pts</span>
+                                        </div>
+                                      )}
+                                      {pick.is_double_down && (
+                                        <div className="flex justify-between text-yellow-600 font-semibold">
+                                          <span>Double down:</span>
+                                          <span>×2</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
