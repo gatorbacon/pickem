@@ -144,15 +144,15 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
           username = userEmail.split('@')[0]
         } else {
           // Fallback: try to determine username from user ID patterns
-          // You can add specific user ID mappings here based on your backup data
+          // Updated with actual user ID suffixes from database
           const userIdSuffix = userId.slice(-8)
           
           // Map known user ID suffixes to usernames
-          // You'll need to update these with the actual user ID suffixes from your database
+          // Updated with actual user ID suffixes from database
           const knownUserMappings: Record<string, string> = {
-            'ad1a9c8c': 'livestrong67',
-            '9319f209': 'micahthompson859', 
-            'c70132d6': 'kdt4g'
+            'ad1a9c8c': 'livestrong67',     // 88dc6880-fe38-4b6c-bbd0-7e6cad1a9c8c
+            '9319f209': 'micahthompson859', // f44a2735-6ed4-4e74-a31b-f01d9319f209
+            'c70132d6': 'kdt4g'             // 101603ba-ca31-4d47-91ba-0c26c70132d6
           }
           
           username = knownUserMappings[userIdSuffix] || `User_${userIdSuffix}`
