@@ -19,6 +19,10 @@ interface Pick6LeaderboardEntry {
     final_points: number
     is_winner: boolean | null
     is_double_down: boolean
+    american_odds: number
+    base_points: number
+    finish_bonus: number
+    underdog_bonus: number
   }>
 }
 
@@ -32,7 +36,6 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
   const [entries, setEntries] = useState<Pick6LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [expandedEntry, setExpandedEntry] = useState<number | null>(null)
 
   useEffect(() => {
     fetchLeaderboard()
@@ -52,7 +55,7 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
       if (eventError) throw eventError
       setEvent(eventData)
 
-      // Fetch leaderboard data
+      // Fetch leaderboard data with detailed picks
       const { data: leaderboardData, error: leaderboardError } = await supabase
         .from('pick6_leaderboard')
         .select('*')
@@ -61,35 +64,50 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
 
       if (leaderboardError) throw leaderboardError
 
-      // Fetch detailed picks if needed
-      if (showDetails) {
-        const entriesWithPicks = await Promise.all(
-          (leaderboardData || []).map(async (entry) => {
-            const { data: picksData, error: picksError } = await supabase
-              .from('pick6_selections')
-              .select(`
-                fighter_name,
-                final_points,
-                is_winner,
-                is_double_down
-              `)
-              .eq('pick6_entry_id', entry.user_id) // This might need adjustment based on the view structure
-              .order('created_at')
+      // Fetch detailed picks for all entries
+      const entriesWithPicks = await Promise.all(
+        (leaderboardData || []).map(async (entry) => {
+          // Find the pick6_entry_id for this user and event
+          const { data: entryData, error: entryError } = await supabase
+            .from('pick6_entries')
+            .select('id')
+            .eq('user_id', entry.user_id)
+            .eq('event_id', eventId)
+            .single()
 
-            if (picksError) {
-              console.warn('Error fetching picks for user:', entry.user_email, picksError)
-            }
+          if (entryError) {
+            console.warn('Error fetching entry for user:', entry.user_email, entryError)
+            return { ...entry, picks: [] }
+          }
 
-            return {
-              ...entry,
-              picks: picksData || []
-            }
-          })
-        )
-        setEntries(entriesWithPicks)
-      } else {
-        setEntries(leaderboardData || [])
-      }
+          const { data: picksData, error: picksError } = await supabase
+            .from('pick6_selections')
+            .select(`
+              fighter_name,
+              final_points,
+              is_winner,
+              is_double_down,
+              american_odds,
+              base_points,
+              finish_bonus,
+              underdog_bonus
+            `)
+            .eq('pick6_entry_id', entryData.id)
+            .order('created_at')
+
+          if (picksError) {
+            console.warn('Error fetching picks for user:', entry.user_email, picksError)
+            return { ...entry, picks: [] }
+          }
+
+          return {
+            ...entry,
+            picks: picksData || []
+          }
+        })
+      )
+
+      setEntries(entriesWithPicks)
 
     } catch (error: any) {
       setError(error.message)
@@ -98,22 +116,27 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
     }
   }
 
-  const getPositionChange = (rank: number) => {
-    // This would require historical data to show position changes
-    // For now, just return neutral
-    return 0
-  }
+  // Calculate potential points for remaining picks
+  const calculatePotentialPoints = (picks: Pick6LeaderboardEntry['picks']) => {
+    const currentPoints = picks.reduce((sum, pick) => sum + (pick.final_points || 0), 0)
+    
+    // Calculate maximum potential points for remaining picks
+    const potentialPoints = picks.reduce((sum, pick) => {
+      if (pick.is_winner === null) {
+        // For pending picks, calculate maximum possible points
+        const basePoints = pick.american_odds >= 0 ? pick.american_odds : Math.floor(10000 / Math.abs(pick.american_odds))
+        const finishBonus = 50 // Maximum finish bonus
+        const underdog_bonus = pick.american_odds >= 100 ? Math.floor(basePoints * 0.1) : 0
+        const maxPoints = (basePoints + finishBonus + underdog_bonus) * (pick.is_double_down ? 2 : 1)
+        return sum + maxPoints
+      }
+      return sum + (pick.final_points || 0)
+    }, 0)
 
-  const getRankDisplay = (rank: number) => {
-    if (rank === 1) return '🥇'
-    if (rank === 2) return '🥈'
-    if (rank === 3) return '🥉'
-    return `#${rank}`
-  }
-
-  const getAccuracyPercentage = (correct: number, total: number) => {
-    if (total === 0) return 0
-    return Math.round((correct / total) * 100)
+    return {
+      current: currentPoints,
+      potential: potentialPoints
+    }
   }
 
   if (loading) {
@@ -157,97 +180,69 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="divide-y divide-gray-200">
-            {entries.map((entry, index) => (
-              <div key={index} className="p-6 hover:bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="text-2xl font-bold min-w-[60px]">
-                      {getRankDisplay(entry.rank)}
+            {entries.map((entry, index) => {
+              const points = calculatePotentialPoints(entry.picks)
+              
+              return (
+                <div key={index} className="p-6">
+                  <div className="grid grid-cols-4 gap-6 items-center">
+                    {/* Column 1: Rank */}
+                    <div className="text-4xl font-normal text-gray-900">
+                      {entry.rank}
                     </div>
-                    <div>
-                      <div className="font-semibold text-lg">
-                        {entry.user_email.split('@')[0]}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {entry.picks_correct}/{event.pick_count || 6} correct • 
-                        {getAccuracyPercentage(entry.picks_correct, event.pick_count || 6)}% accuracy
-                      </div>
-                      {entry.submitted_at && (
-                        <div className="text-xs text-gray-500">
-                          Submitted {new Date(entry.submitted_at).toLocaleString()}
-                        </div>
-                      )}
+
+                    {/* Column 2: Username */}
+                    <div className="font-semibold text-lg text-gray-900">
+                      {entry.user_email.split('@')[0]}
                     </div>
-                  </div>
 
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {formatPoints(entry.total_points)}
-                    </div>
-                    <div className="text-sm text-gray-600">points</div>
-                    {!entry.is_complete && (
-                      <div className="text-xs text-orange-600 font-medium">
-                        Incomplete
-                      </div>
-                    )}
-                  </div>
-
-                  {showDetails && entry.picks && entry.picks.length > 0 && (
-                    <button
-                      onClick={() => setExpandedEntry(expandedEntry === index ? null : index)}
-                      className="ml-4 text-blue-600 hover:text-blue-800"
-                    >
-                      {expandedEntry === index ? '▼' : '▶'}
-                    </button>
-                  )}
-                </div>
-
-                {/* Expanded Pick Details */}
-                {showDetails && expandedEntry === index && entry.picks && (
-                  <div className="mt-6 pt-6 border-t border-gray-200">
-                    <h4 className="font-semibold mb-4">Pick Details:</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* Column 3: Picks with win/loss indicators */}
+                    <div className="space-y-1">
                       {entry.picks.map((pick, pickIndex) => (
-                        <div
-                          key={pickIndex}
-                          className={`p-4 rounded-lg border-2 ${
-                            pick.is_winner === true
-                              ? 'border-green-500 bg-green-50'
-                              : pick.is_winner === false
-                              ? 'border-red-500 bg-red-50'
-                              : 'border-gray-200 bg-gray-50'
-                          }`}
-                        >
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <div className="font-semibold">
-                                {pick.fighter_name}
-                                {pick.is_double_down && (
-                                  <span className="ml-2 text-xs bg-orange-500 text-white px-2 py-1 rounded">
-                                    2X
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-sm text-gray-600">
-                                {pick.is_winner === true && '✅ Winner'}
-                                {pick.is_winner === false && '❌ Lost'}
-                                {pick.is_winner === null && '⏳ Pending'}
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="font-bold text-lg">
-                                {formatPoints(pick.final_points)}
-                              </div>
-                              <div className="text-xs text-gray-500">points</div>
-                            </div>
+                        <div key={pickIndex} className="flex items-center space-x-2">
+                          {/* Win/Loss indicator */}
+                          <div className="w-4 h-4 flex items-center justify-center">
+                            {pick.is_winner === true && (
+                              <span className="text-green-600 text-sm">✓</span>
+                            )}
+                            {pick.is_winner === false && (
+                              <span className="text-red-600 text-sm">✗</span>
+                            )}
                           </div>
+                          
+                          {/* Fighter name with double down highlighting */}
+                          <span 
+                            className={`text-sm ${
+                              pick.is_double_down 
+                                ? 'bg-yellow-500 text-white px-2 py-1 rounded font-semibold' 
+                                : 'text-gray-900'
+                            }`}
+                          >
+                            {pick.fighter_name}
+                          </span>
                         </div>
                       ))}
                     </div>
+
+                    {/* Column 4: Points */}
+                    <div className="text-right">
+                      <div className="text-4xl font-bold text-blue-600">
+                        {Math.round(points.current)}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        points
+                      </div>
+                      <div className="text-sm text-blue-500 mt-1">
+                        {Math.round(points.potential)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        potential
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
