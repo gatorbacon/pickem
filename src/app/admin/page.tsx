@@ -425,13 +425,18 @@ export default function AdminPage() {
           if (winnersError) console.error('Winners error:', winnersError)
           
           // Set losers
-          const { error: losersError } = await supabase
+          const { data: losersData, error: losersError } = await supabase
             .from('pick6_selections')
             .update({ is_winner: false })
             .eq('match_id', match.id)
             .neq('fighter_id', match.winner)
+            .select('id, fighter_name, fighter_id')
           
-          if (losersError) console.error('Losers error:', losersError)
+          if (losersError) {
+            console.error('Losers error:', losersError)
+          } else {
+            console.log(`Set ${losersData?.length} losers for match ${match.id}:`, losersData?.map(l => `${l.fighter_name} (${l.fighter_id})`))
+          }
           
           // Get winners to calculate points
           const { data: winners, error: winnersDataError } = await supabase
@@ -511,7 +516,10 @@ export default function AdminPage() {
       }
       
       console.log('Recalculation complete!')
-      alert('Points recalculated successfully! Check the browser console for details.')
+      alert('Points recalculated successfully! The leaderboard should refresh automatically.')
+      
+      // Force a page refresh to show updated results
+      window.location.reload()
       
     } catch (error) {
       console.error('Recalculation error:', error)
