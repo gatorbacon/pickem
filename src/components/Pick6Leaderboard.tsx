@@ -90,10 +90,12 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
               american_odds,
               base_points,
               finish_bonus,
-              underdog_bonus
+              underdog_bonus,
+              match_id,
+              matches!inner(match_order)
             `)
             .eq('pick6_entry_id', entryData.id)
-            .order('created_at')
+            .order('matches.match_order', { ascending: true })
 
           if (picksError) {
             console.warn('Error fetching picks for user:', entry.user_email, picksError)
@@ -185,19 +187,19 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
               
               return (
                 <div key={index} className="p-6">
-                  <div className="grid grid-cols-4 gap-6 items-center">
-                    {/* Column 1: Rank */}
-                    <div className="text-4xl font-normal text-gray-900">
+                  <div className="grid grid-cols-12 gap-4 items-center">
+                    {/* Column 1: Rank - 1 column */}
+                    <div className="col-span-1 text-4xl font-normal text-gray-900">
                       {entry.rank}
                     </div>
 
-                    {/* Column 2: Username */}
-                    <div className="font-semibold text-lg text-gray-900">
+                    {/* Column 2: Username - 2 columns */}
+                    <div className="col-span-2 font-semibold text-lg text-gray-900">
                       {entry.user_email.split('@')[0]}
                     </div>
 
-                    {/* Column 3: Picks with win/loss indicators */}
-                    <div className="space-y-1">
+                    {/* Column 3: Picks with win/loss indicators - 7 columns */}
+                    <div className="col-span-7 space-y-1">
                       {entry.picks.map((pick, pickIndex) => (
                         <div key={pickIndex} className="flex items-center space-x-2">
                           {/* Win/Loss indicator */}
@@ -224,8 +226,8 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
                       ))}
                     </div>
 
-                    {/* Column 4: Points */}
-                    <div className="text-right">
+                    {/* Column 4: Points - 2 columns */}
+                    <div className="col-span-2 text-right">
                       <div className="text-4xl font-bold text-blue-600">
                         {Math.round(points.current)}
                       </div>
