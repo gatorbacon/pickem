@@ -80,10 +80,22 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
         return
       }
 
-      // Create username mapping - use known usernames from your backup data
-      const knownUsernames: Record<string, string> = {
-        // Map user IDs to usernames based on your backup data
-        // You can add more mappings here as needed
+      // Try to get actual user emails from auth.users
+      let userEmails: Record<string, string> = {}
+      try {
+        const { data: usersData, error: usersError } = await supabase
+          .from('auth.users')
+          .select('id, email')
+          .in('id', entriesData.map(entry => entry.user_id))
+        
+        if (usersData && !usersError) {
+          userEmails = usersData.reduce((acc, user) => {
+            acc[user.id] = user.email
+            return acc
+          }, {} as Record<string, string>)
+        }
+      } catch (e) {
+        console.log('Could not fetch user emails, using fallback mapping')
       }
 
       // Fetch all picks for these entries with match information
@@ -124,15 +136,26 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
       // Combine entries with their picks and determine usernames
       const entriesWithPicks = entriesData.map((entry, index) => {
         const userId = entry.user_id
-        let username = knownUsernames[userId]
-        
-        // If no known username, try to extract from common patterns
-        if (!username) {
-          // Check if this looks like a known user pattern
-          if (userId.includes('livestrong')) username = 'livestrong67'
-          else if (userId.includes('micah')) username = 'micahthompson859'  
-          else if (userId.includes('kdt')) username = 'kdt4g'
-          else username = `User_${userId.slice(-8)}`
+        let username = 'Unknown User'
+        let userEmail = userEmails[userId] || ''
+
+        // If we have an email, extract username from it
+        if (userEmail) {
+          username = userEmail.split('@')[0]
+        } else {
+          // Fallback: try to determine username from user ID patterns
+          // You can add specific user ID mappings here based on your backup data
+          const userIdSuffix = userId.slice(-8)
+          
+          // Map known user ID suffixes to usernames
+          // You'll need to update these with the actual user ID suffixes from your database
+          const knownUserMappings: Record<string, string> = {
+            'ad1a9c8c': 'livestrong67',
+            '9319f209': 'micahthompson859', 
+            'c70132d6': 'kdt4g'
+          }
+          
+          username = knownUserMappings[userIdSuffix] || `User_${userIdSuffix}`
         }
 
         const picks = (picksByEntry[entry.id] || []).sort((a, b) => 
@@ -142,7 +165,7 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
         return {
           rank: index + 1,
           username,
-          user_email: `${username}@example.com`, // Placeholder email
+          user_email: userEmail || `${username}@example.com`,
           total_points: entry.total_points || 0,
           picks_correct: entry.picks_correct || 0,
           is_complete: entry.is_complete,
@@ -229,7 +252,10 @@ export default function Pick6Leaderboard({ eventId, showDetails = false }: Pick6
           <p>Entries found: {entries.length}</p>
           <p>Event ID: {eventId}</p>
           {entries.length > 0 && (
-            <p>First entry picks: {entries[0].picks.length}</p>
+            <div>
+              <p>First entry picks: {entries[0].picks.length}</p>
+              <p>Usernames: {entries.map(e => e.username).join(', ')}</p>
+            </div>
           )}
         </div>
       )}
