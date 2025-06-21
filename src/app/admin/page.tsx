@@ -378,6 +378,134 @@ export default function AdminPage() {
     }
   }
 
+  const handleRecalculatePoints = async () => {
+    setError(null)
+    
+    try {
+      // Manual points calculation since trigger is broken
+      
+      // Step 1: Update is_winner for all completed matches
+      const { error: updateWinnersError } = await supabase.rpc('execute_sql', {
+        sql: `
+          UPDATE pick6_selections 
+          SET is_winner = CASE 
+            WHEN m.winner IS NULL THEN NULL
+            WHEN m.winner = pick6_selections.fighter_id THEN TRUE
+            ELSE FALSE
+          END
+          FROM matches m
+          WHERE pick6_selections.match_id = m.id
+          AND m.is_complete = true;
+        `
+      })
+      
+      if (updateWinnersError) {
+        // Fallback: Use direct SQL queries
+        console.log('RPC failed, using direct updates...')
+        
+        // Get all completed matches and their selections
+        const { data: completedMatches, error: matchesError } = await supabase
+          .from('matches')
+          .select('id, winner')
+          .eq('is_complete', true)
+        
+        if (matchesError) throw matchesError
+        
+        // Update each match's selections individually
+        for (const match of completedMatches || []) {
+          // Reset points first
+          await supabase
+            .from('pick6_selections')
+            .update({
+              base_points: 0,
+              finish_bonus: 0,
+              underdog_bonus: 0,
+              final_points: 0,
+              is_winner: null
+            })
+            .eq('match_id', match.id)
+          
+          if (match.winner) {
+            // Set winners
+            await supabase
+              .from('pick6_selections')
+              .update({ is_winner: true })
+              .eq('match_id', match.id)
+              .eq('fighter_id', match.winner)
+            
+            // Set losers
+            await supabase
+              .from('pick6_selections')
+              .update({ is_winner: false })
+              .eq('match_id', match.id)
+              .neq('fighter_id', match.winner)
+            
+            // Calculate points for winners
+            const { data: winners } = await supabase
+              .from('pick6_selections')
+              .select('id, american_odds, is_double_down')
+              .eq('match_id', match.id)
+              .eq('is_winner', true)
+            
+            const { data: matchData } = await supabase
+              .from('matches')
+              .select('finish_type')
+              .eq('id', match.id)
+              .single()
+            
+            for (const winner of winners || []) {
+              const basePoints = winner.american_odds >= 0 
+                ? winner.american_odds 
+                : Math.floor(10000 / Math.abs(winner.american_odds))
+              
+              const finishBonus = matchData?.finish_type === 'ko_tko' || matchData?.finish_type === 'submission' ? 50 : 0
+              const underdogBonus = winner.american_odds >= 100 ? Math.floor(basePoints * 0.1) : 0
+              const finalPoints = (basePoints + finishBonus + underdogBonus) * (winner.is_double_down ? 2 : 1)
+              
+              await supabase
+                .from('pick6_selections')
+                .update({
+                  base_points: basePoints,
+                  finish_bonus: finishBonus,
+                  underdog_bonus: underdogBonus,
+                  final_points: finalPoints
+                })
+                .eq('id', winner.id)
+            }
+          }
+        }
+        
+        // Update pick6_entries totals
+        const { data: entries } = await supabase
+          .from('pick6_entries')
+          .select('id')
+        
+        for (const entry of entries || []) {
+          const { data: selections } = await supabase
+            .from('pick6_selections')
+            .select('final_points, is_winner')
+            .eq('pick6_entry_id', entry.id)
+          
+          const totalPoints = selections?.reduce((sum, sel) => sum + (sel.final_points || 0), 0) || 0
+          const picksCorrect = selections?.filter(sel => sel.is_winner === true).length || 0
+          
+          await supabase
+            .from('pick6_entries')
+            .update({
+              total_points: totalPoints,
+              picks_correct: picksCorrect
+            })
+            .eq('id', entry.id)
+        }
+      }
+      
+      alert('Points recalculated successfully! All completed matches have been updated.')
+      
+    } catch (error) {
+      setError(getErrorMessage(error))
+    }
+  }
+
   const handleDeleteEvent = async (eventId: string) => {
     setError(null)
     
@@ -1259,8 +1387,21 @@ export default function AdminPage() {
           ) : (
             <div className="bg-white rounded-lg shadow">
               <div className="p-6 border-b border-gray-200">
-                <h2 className="text-xl font-semibold">Record Results - {currentEvent.name}</h2>
-                <p className="text-gray-600 mt-1">Click on the winner of each match to record results</p>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="text-xl font-semibold">Record Results - {currentEvent.name}</h2>
+                    <p className="text-gray-600 mt-1">Click on the winner of each match to record results</p>
+                  </div>
+                  <button
+                    onClick={handleRecalculatePoints}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Recalculate Points</span>
+                  </button>
+                </div>
               </div>
               
               <div className="divide-y divide-gray-200">
