@@ -44,6 +44,7 @@ export default function Pick6Interface({ eventId, userId, pickCount }: Pick6Inte
     areEqual: eventId === userId
   })
 
+  // Force git to detect changes - enhanced debugging version
   const [matches, setMatches] = useState<Match[]>([])
   const [selectedPicks, setSelectedPicks] = useState<SelectedPick[]>([])
   const [showDoubleDown, setShowDoubleDown] = useState(false)
