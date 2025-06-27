@@ -98,7 +98,17 @@ export default function Pick6Interface({ eventId, userId, pickCount }: Pick6Inte
           }))
           setSelectedPicks(picks)
           setDoubleDownPickId(entryData.double_down_pick_id)
+        } else {
+          // Entry exists but no selections - reset state
+          setSelectedPicks([])
+          setDoubleDownPickId(null)
+          setShowDoubleDown(false)
         }
+      } else {
+        // No entry exists for this event - reset all state
+        setSelectedPicks([])
+        setDoubleDownPickId(null)
+        setShowDoubleDown(false)
       }
 
     } catch (error: any) {
