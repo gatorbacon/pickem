@@ -38,6 +38,8 @@ export interface Match {
   favorite: 'A' | 'B' | null
   odds_ratio: number
   american_odds?: number
+  american_odds_a?: number // Fighter A odds
+  american_odds_b?: number // Fighter B odds
   favorite_points: number
   underdog_points: number
   finish_type?: 'decision' | 'ko_tko' | 'submission' | null

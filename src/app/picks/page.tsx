@@ -268,6 +268,12 @@ export default function PicksPage() {
               <button
                 key={event.id}
                 onClick={() => {
+                  console.log('🎯 Event clicked:', {
+                    eventId: event.id,
+                    eventName: event.name,
+                    userId: user?.id,
+                    eventObject: event
+                  })
                   setCurrentEvent(event)
                   fetchMatches(event.id)
                 }}
@@ -302,11 +308,20 @@ export default function PicksPage() {
         <>
           {/* Pick 6 Interface for Pick 6 Events */}
           {currentEvent.contest_type === 'pick_6' ? (
-            <Pick6Interface 
-              eventId={currentEvent.id}
-              userId={user.id}
-              pickCount={currentEvent.pick_count || 6}
-            />
+            <>
+              {console.log('🚀 About to render Pick6Interface with:', {
+                eventId: currentEvent.id,
+                userId: user.id,
+                pickCount: currentEvent.pick_count || 6,
+                currentEventObject: currentEvent
+              })}
+              <Pick6Interface 
+                key={currentEvent.id}
+                eventId={currentEvent.id}
+                userId={user.id}
+                pickCount={currentEvent.pick_count || 6}
+              />
+            </>
           ) : (
             <>
               {/* Traditional Match Picks Interface */}

@@ -34,6 +34,16 @@ interface SelectedPick {
 }
 
 export default function Pick6Interface({ eventId, userId, pickCount }: Pick6InterfaceProps) {
+  // Immediate logging to track prop corruption
+  console.log('🔍 Pick6Interface component rendered with props:', { 
+    eventId, 
+    userId, 
+    pickCount,
+    eventIdType: typeof eventId,
+    userIdType: typeof userId,
+    areEqual: eventId === userId
+  })
+
   const [matches, setMatches] = useState<Match[]>([])
   const [selectedPicks, setSelectedPicks] = useState<SelectedPick[]>([])
   const [showDoubleDown, setShowDoubleDown] = useState(false)
@@ -44,12 +54,38 @@ export default function Pick6Interface({ eventId, userId, pickCount }: Pick6Inte
   const [existingEntry, setExistingEntry] = useState<Pick6Entry | null>(null)
 
   useEffect(() => {
+    // Add safeguards to prevent eventId corruption
+    if (!eventId || !userId) {
+      console.error('Pick6Interface: Missing required props', { eventId, userId })
+      return
+    }
+    
+    if (eventId === userId) {
+      console.error('Pick6Interface: eventId equals userId - this is a bug!', { eventId, userId })
+      setError('Invalid event ID detected. Please refresh the page.')
+      return
+    }
+    
+    console.log('Pick6Interface: useEffect triggered', { eventId, userId })
     fetchEventData()
   }, [eventId, userId])
 
   const fetchEventData = async () => {
     try {
       setLoading(true)
+      setError(null)
+
+      // Additional safeguards
+      if (!eventId || !userId) {
+        throw new Error('Missing required eventId or userId')
+      }
+      
+      if (eventId === userId) {
+        throw new Error('Invalid state: eventId cannot equal userId')
+      }
+
+      // Debug logging to track the 406 error
+      console.log('Pick6Interface fetchEventData called with:', { eventId, userId })
 
       // Fetch matches for the event
       const { data: matchesData, error: matchesError } = await supabase
@@ -61,6 +97,7 @@ export default function Pick6Interface({ eventId, userId, pickCount }: Pick6Inte
       if (matchesError) throw matchesError
 
       // Check for existing Pick 6 entry
+      console.log('About to query pick6_entries with:', { eventId, userId })
       const { data: entryData, error: entryError } = await supabase
         .from('pick6_entries')
         .select('*')
@@ -69,6 +106,7 @@ export default function Pick6Interface({ eventId, userId, pickCount }: Pick6Inte
         .single()
 
       if (entryError && entryError.code !== 'PGRST116') {
+        console.error('pick6_entries query error:', entryError)
         throw entryError
       }
 
