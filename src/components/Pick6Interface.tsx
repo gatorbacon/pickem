@@ -98,16 +98,52 @@ export default function Pick6Interface({ eventId, userId, pickCount }: Pick6Inte
 
       // Check for existing Pick 6 entry
       console.log('About to query pick6_entries with:', { eventId, userId })
-      const { data: entryData, error: entryError } = await supabase
+      
+      // Debug the actual query construction
+      const capturedEventId = eventId
+      const capturedUserId = userId
+      
+      console.log('🔍 Captured values for query:', {
+        capturedEventId,
+        capturedUserId,
+        originalEventId: eventId,
+        originalUserId: userId,
+        areEventIdsSame: capturedEventId === eventId,
+        areUserIdsSame: capturedUserId === userId
+      })
+      
+      const query = supabase
         .from('pick6_entries')
         .select('*')
-        .eq('event_id', eventId)
-        .eq('user_id', userId)
-        .single()
-
-      if (entryError && entryError.code !== 'PGRST116') {
-        console.error('pick6_entries query error:', entryError)
-        throw entryError
+        .eq('event_id', capturedEventId)
+        .eq('user_id', capturedUserId)
+      
+      console.log('🔍 Supabase query object:', query)
+      console.log('🔍 Query parameters being used:', {
+        table: 'pick6_entries',
+        event_id_param: capturedEventId,
+        user_id_param: capturedUserId,
+        event_id_type: typeof capturedEventId,
+        user_id_type: typeof capturedUserId
+      })
+      
+      const { data: entryData, error: entryError } = await query.single()
+      
+      // Log the actual error details if it occurs
+      if (entryError) {
+        console.error('🚨 Supabase query error details:', {
+          error: entryError,
+          code: entryError.code,
+          message: entryError.message,
+          details: entryError.details,
+          hint: entryError.hint,
+          queryParams: { capturedEventId, capturedUserId }
+        })
+        
+        // Only throw if it's not the expected "no rows found" error
+        if (entryError.code !== 'PGRST116') {
+          throw entryError
+        }
       }
 
       setMatches(matchesData || [])
